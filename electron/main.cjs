@@ -1,7 +1,14 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
+const { MSPConnection } = require('./msp.cjs');
 
 const isDev = !app.isPackaged;
+const msp = new MSPConnection();
+
+ipcMain.handle('serial:list', () => msp.list());
+ipcMain.handle('serial:connect', (_, path) => msp.connect(path));
+ipcMain.handle('serial:disconnect', () => msp.disconnect());
+ipcMain.handle('msp:self-test', () => msp.selfTest());
 
 function createWindow() {
   const win = new BrowserWindow({

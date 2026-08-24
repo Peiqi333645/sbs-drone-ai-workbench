@@ -89,3 +89,7 @@ header h1 { font-size: 16px; letter-spacing: -.01em; }
 .health-ring { box-shadow: 0 8px 26px rgba(255,176,0,.13); }
 .page-title h2 { font-size: 26px; letter-spacing: -.035em; }
 .page-title p { font-size: 13px; }
+.connection-banner { margin-bottom: 14px; padding: 10px 13px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
+.connection-banner.success { color: #147a4a; background: #e7f7ef; border: 1px solid #c9ead9; }
+.connection-banner.error { color: #9f2f32; background: #fff0f0; border: 1px solid #f3cecf; }
+.connection-banner button { border: 0; background: transparent; color: inherit; cursor: pointer; }

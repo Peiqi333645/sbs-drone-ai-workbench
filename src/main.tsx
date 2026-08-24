@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity, Bot, Box, Cable, Check, ChevronRight, CircleAlert, Cpu,
-  Gauge, GraduationCap, HardDrive, Home, LayoutDashboard, Menu, Plane,
+  Gauge, GraduationCap, HardDrive, Home, LayoutDashboard, Menu,
   PlugZap, Radio, Search, Settings, ShieldCheck, SlidersHorizontal,
   Sparkles, Wrench, X, Zap
 } from 'lucide-react';
@@ -11,10 +11,21 @@ import './apple.css';
 
 type Page = 'home' | 'aircraft' | 'build' | 'tune' | 'inspect' | 'learn';
 type Tone = 'good' | 'warn' | 'bad' | 'muted';
+type FCIdentity = { api:string; variant:string; firmware:string; boardIdentifier:string; boardVersion:number; craftName:string };
+
+declare global { interface Window { sbsDesktop?: {
+  platform:string; version:string; serialWriteEnabled:boolean;
+  listSerialPorts:()=>Promise<Array<{path:string;manufacturer:string}>>;
+  connectFlightController:(path:string)=>Promise<FCIdentity>;
+  disconnectFlightController:()=>Promise<void>;
+  runSelfTest:()=>Promise<{identity:FCIdentity;results:Array<{id:string;label:string;level:Tone;detail:string}>;checkedAt:string}>;
+} } }
+
+function QuadcopterIcon({size=20}:{size?:number}) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.2 8.2 10.5 10.5M15.8 8.2 13.5 10.5M8.2 15.8l2.3-2.3M15.8 15.8l-2.3-2.3"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/></svg>; }
 
 const nav = [
   { id: 'home' as Page, label: '工作台', icon: LayoutDashboard },
-  { id: 'aircraft' as Page, label: '我的飞机', icon: Plane },
+  { id: 'aircraft' as Page, label: '我的穿越机', icon: QuadcopterIcon },
   { id: 'build' as Page, label: '装机', icon: Wrench },
   { id: 'tune' as Page, label: '调试', icon: SlidersHorizontal },
   { id: 'inspect' as Page, label: '检测', icon: ShieldCheck },
@@ -46,6 +57,9 @@ function Card({ children, className = '' }: React.PropsWithChildren<{ className?
 function App() {
   const [page, setPage] = useState<Page>('home');
   const [connected, setConnected] = useState(false);
+  const [identity, setIdentity] = useState<FCIdentity|null>(null);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState('');
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [inspectRunning, setInspectRunning] = useState(false);
   const [inspectProgress, setInspectProgress] = useState(0);
@@ -64,12 +78,32 @@ function App() {
   }, [inspectRunning]);
 
   const title = useMemo(() => nav.find(n => n.id === page)?.label || '工作台', [page]);
-  const startInspect = () => { setPage('inspect'); setInspectProgress(0); setInspectRunning(true); };
+  const connectFC = async () => {
+    if (!window.sbsDesktop) { setConnectionMessage('串口连接仅在桌面安装版中可用'); return; }
+    if (connected) { await window.sbsDesktop.disconnectFlightController(); setConnected(false); setIdentity(null); return; }
+    setConnectBusy(true); setConnectionMessage('');
+    try {
+      const ports = await window.sbsDesktop.listSerialPorts();
+      if (!ports.length) throw new Error('未发现串口设备，请连接飞控USB后重试');
+      const preferred = ports.find(p => /usb|stm|cp210|ch340/i.test(`${p.manufacturer} ${p.path}`)) || ports[0];
+      const info = await window.sbsDesktop.connectFlightController(preferred.path);
+      setIdentity(info); setConnected(true); setConnectionMessage(`已连接 ${preferred.path}`);
+    } catch (error:any) { setConnectionMessage(error?.message || '连接失败'); }
+    finally { setConnectBusy(false); }
+  };
+  const startInspect = async () => {
+    setPage('inspect'); setInspectProgress(0);
+    if (!connected || !window.sbsDesktop) { setConnectionMessage('请先连接真实飞控'); return; }
+    setInspectRunning(true);
+    try { await window.sbsDesktop.runSelfTest(); setInspectProgress(100); }
+    catch (error:any) { setConnectionMessage(error?.message || '自检失败'); }
+    finally { setInspectRunning(false); }
+  };
 
   return <div className={`app ${assistantOpen ? 'with-assistant' : ''}`}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><img src="./icon.png" alt="SBS"/></div><div><strong>SBS</strong><span>无人机 AI 工作台</span></div></div>
-      <div className="edition">穿越机工程版 <span>v0.2</span></div>
+      <div className="brand"><div className="brand-mark"><img src="./icon.png" alt="SBS"/></div><div><strong>SBS</strong><span>穿越机 AI 工作台</span></div></div>
+      <div className="edition">穿越机工程版 <span>v0.3 Beta</span></div>
       <nav>{nav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><item.icon size={19}/><span>{item.label}</span></button>)}</nav>
       <div className="sidebar-bottom"><button><Settings size={18}/>设置</button><div className="safe-note"><ShieldCheck size={17}/><span>安全辅助模式<br/><small>写入前必须确认</small></span></div></div>
     </aside>
@@ -77,11 +111,12 @@ function App() {
     <main>
       <header>
         <div><button className="icon-btn mobile-menu"><Menu size={20}/></button><h1>{title}</h1><span className="crumb">/ 5寸自由式</span></div>
-        <div className="header-actions"><button className={`connection ${connected ? 'online' : ''}`} onClick={() => setConnected(v => !v)}><StatusDot tone={connected ? 'good' : 'muted'}/>{connected ? '飞控已连接' : '未连接飞控'}</button><button className="icon-btn"><Search size={19}/></button><button className="ai-toggle" onClick={() => setAssistantOpen(v => !v)}><Sparkles size={17}/>AI 助手</button></div>
+        <div className="header-actions"><button className={`connection ${connected ? 'online' : ''}`} onClick={connectFC} disabled={connectBusy}><StatusDot tone={connected ? 'good' : 'muted'}/>{connectBusy?'正在识别…':connected?`${identity?.boardIdentifier} · ${identity?.firmware}`:'连接真实飞控'}</button><button className="icon-btn"><Search size={19}/></button><button className="ai-toggle" onClick={() => setAssistantOpen(v => !v)}><Sparkles size={17}/>AI 助手</button></div>
       </header>
 
       <div className="content">
-        {page === 'home' && <HomePage connected={connected} setConnected={setConnected} startInspect={startInspect} setPage={setPage}/>} 
+        {connectionMessage && <div className={`connection-banner ${connected?'success':'error'}`}>{connectionMessage}<button onClick={()=>setConnectionMessage('')}><X size={14}/></button></div>}
+        {page === 'home' && <HomePage connected={connected} connectFC={connectFC} identity={identity} startInspect={startInspect} setPage={setPage}/>} 
         {page === 'aircraft' && <AircraftPage/>}
         {page === 'build' && <BuildPage completed={completedSteps} setCompleted={setCompletedSteps}/>} 
         {page === 'tune' && <TunePage connected={connected}/>} 
@@ -98,9 +133,9 @@ function App() {
   </div>;
 }
 
-function HomePage({connected,setConnected,startInspect,setPage}:{connected:boolean;setConnected:(v:boolean)=>void;startInspect:()=>void;setPage:(p:Page)=>void}) {
-  return <><div className="hero"><div><span className="eyebrow">晚上好，欢迎回来</span><h2>5寸自由式 <span className="pill">主力机</span></h2><p>{connected ? '飞控连接正常，可以开始自检或继续调试。' : '连接飞控后可读取固件、参数与设备状态。'}</p></div><div className="hero-actions"><button className="primary" onClick={() => setConnected(!connected)}><PlugZap size={18}/>{connected ? '断开飞控' : '连接飞控'}</button><button className="secondary" onClick={startInspect}><ShieldCheck size={18}/>一键自检</button></div></div>
-    <div className="metric-grid"><Metric icon={Activity} label="整机健康度" value="82" suffix="分" tone="good"/><Metric icon={Cpu} label="飞控" value={connected?'F405':'--'} suffix={connected?'在线':'未连接'} tone={connected?'good':'muted'}/><Metric icon={CircleAlert} label="待处理" value="2" suffix="项" tone="warn"/><Metric icon={HardDrive} label="最近备份" value="今天" suffix="21:16" tone="muted"/></div>
+function HomePage({connected,connectFC,identity,startInspect,setPage}:{connected:boolean;connectFC:()=>void;identity:FCIdentity|null;startInspect:()=>void;setPage:(p:Page)=>void}) {
+  return <><div className="hero"><div><span className="eyebrow">晚上好，欢迎回来</span><h2>5寸自由式 <span className="pill">主力机</span></h2><p>{connected ? '已真实连接Betaflight，可以开始自检。' : '连接飞控后真实读取固件、参数与设备状态。'}</p></div><div className="hero-actions"><button className="primary" onClick={connectFC}><PlugZap size={18}/>{connected ? '断开飞控' : '连接飞控'}</button><button className="secondary" onClick={startInspect}><ShieldCheck size={18}/>真实自检</button></div></div>
+    <div className="metric-grid"><Metric icon={Activity} label="整机健康度" value={connected?'待检':'--'} suffix={connected?'运行自检':'未连接'} tone={connected?'warn':'muted'}/><Metric icon={Cpu} label="飞控" value={identity?.boardIdentifier||'--'} suffix={identity?`BF ${identity.firmware}`:'未连接'} tone={connected?'good':'muted'}/><Metric icon={CircleAlert} label="MSP API" value={identity?.api||'--'} suffix={connected?'真实读取':'等待连接'} tone={connected?'good':'muted'}/><Metric icon={HardDrive} label="配置保护" value="开启" suffix="写入前备份" tone="good"/></div>
     <div className="two-col"><Card><div className="card-head"><div><h3>当前状态</h3><p>只显示需要关注的项目</p></div><button className="text-btn" onClick={() => setPage('inspect')}>查看完整检测 <ChevronRight size={15}/></button></div><div className="status-list">{inspectionRows.slice(3).map(([a,b,t])=><div key={a}><StatusDot tone={t}/><div><strong>{a}</strong><span>{b}</span></div><ChevronRight size={17}/></div>)}</div></Card><Card><div className="card-head"><div><h3>继续工作</h3><p>最近进行的任务</p></div></div><div className="continue-task"><div className="task-icon"><Cable/></div><div><strong>装机流程 · 串口与接线</strong><span>已完成 3 / 9 步</span><div className="progress"><i style={{width:'33%'}}/></div></div><button className="secondary compact" onClick={()=>setPage('build')}>继续</button></div></Card></div>
     <Card><div className="card-head"><div><h3>快捷工具</h3><p>常用工程功能</p></div></div><div className="quick-grid"><Quick icon={Cable} title="串口规划" sub="自动分配 UART"/><Quick icon={Radio} title="接收机向导" sub="通道与失控保护"/><Quick icon={Gauge} title="OSD 编辑" sub="可视化布局"/><Quick icon={Activity} title="PID 分析" sub="参数建议与回滚"/><Quick icon={Box} title="兼容检查" sub="电机、电调与电池"/></div></Card></>;
 }
@@ -108,7 +143,7 @@ function HomePage({connected,setConnected,startInspect,setPage}:{connected:boole
 function Metric({icon:Icon,label,value,suffix,tone}:{icon:any;label:string;value:string;suffix:string;tone:Tone}) { return <Card className="metric"><div className={`metric-icon ${tone}`}><Icon size={20}/></div><span>{label}</span><div><strong>{value}</strong><small>{suffix}</small></div></Card>; }
 function Quick({icon:Icon,title,sub}:{icon:any;title:string;sub:string}) { return <button className="quick"><Icon size={21}/><div><strong>{title}</strong><span>{sub}</span></div><ChevronRight size={16}/></button>; }
 
-function AircraftPage(){return <><div className="page-title"><div><h2>我的飞机</h2><p>为每架飞机保存硬件、固件、参数与维修记录。</p></div><button className="primary">+ 新建飞机</button></div><div className="aircraft-grid"><Card className="aircraft-card"><div className="drone-visual"><Plane size={48}/><span>主力机</span></div><h3>5寸自由式</h3><p>6S · F405 · 2207 1950KV</p><div className="specs"><span>飞控<strong>SpeedyBee F405 V4</strong></span><span>图传<strong>DJI O4</strong></span><span>接收机<strong>ELRS 2.4G</strong></span><span>重量<strong>612 g</strong></span></div><button className="secondary full">打开档案</button></Card><button className="add-card"><span>+</span><strong>添加另一架飞机</strong><small>创建独立档案与配置历史</small></button></div></>}
+function AircraftPage(){return <><div className="page-title"><div><h2>我的穿越机</h2><p>为每架穿越机保存硬件、固件、参数与维修记录。</p></div><button className="primary">+ 新建穿越机</button></div><div className="aircraft-grid"><Card className="aircraft-card"><div className="drone-visual"><QuadcopterIcon size={58}/><span>主力机</span></div><h3>5寸自由式</h3><p>6S · F405 · 2207 1950KV</p><div className="specs"><span>飞控<strong>SpeedyBee F405 V4</strong></span><span>图传<strong>DJI O4</strong></span><span>接收机<strong>ELRS 2.4G</strong></span><span>重量<strong>612 g</strong></span></div><button className="secondary full">打开档案</button></Card><button className="add-card"><span>+</span><strong>添加另一架穿越机</strong><small>创建独立档案与配置历史</small></button></div></>}
 
 function BuildPage({completed,setCompleted}:{completed:number[];setCompleted:(v:number[])=>void}) { const toggle=(i:number)=>setCompleted(completed.includes(i)?completed.filter(x=>x!==i):[...completed,i]); return <><div className="page-title"><div><h2>智能装机</h2><p>从配件确认到首飞前检查，按步骤完成并保存记录。</p></div><button className="secondary"><Box size={17}/>兼容性检查</button></div><div className="build-layout"><Card><div className="card-head"><div><h3>5寸自由式装机流程</h3><p>完成 {completed.length} / {steps.length} 步</p></div><span className="score">{Math.round(completed.length/steps.length*100)}%</span></div><div className="progress large"><i style={{width:`${completed.length/steps.length*100}%`}}/></div><div className="step-list">{steps.map((s,i)=><button key={s} onClick={()=>toggle(i)} className={completed.includes(i)?'done':''}><span>{completed.includes(i)?<Check size={16}/>:i+1}</span><div><strong>{s}</strong><small>{i===5?'建议使用防炸烟插头，禁止安装桨叶':'查看图示、注意事项和检查清单'}</small></div><ChevronRight size={17}/></button>)}</div></Card><div className="side-stack"><Card><h3>接线规划</h3><div className="wire-row"><span>UART1</span><strong>DJI O4 · MSP</strong><StatusDot tone="good"/></div><div className="wire-row"><span>UART2</span><strong>ELRS · CRSF</strong><StatusDot tone="good"/></div><div className="wire-row"><span>UART3</span><strong>GPS · UBLOX</strong><StatusDot tone="warn"/></div><button className="secondary full">打开接线图</button></Card><Card className="warning-card"><Zap size={22}/><div><strong>首次通电安全提醒</strong><p>先测量电源正负极阻值，再使用限流设备上电。</p></div></Card></div></div></>}
 
