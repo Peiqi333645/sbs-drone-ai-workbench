@@ -1,6 +1,6 @@
 {
   "name": "sbs-drone-ai-workbench",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "SBS 无人机 AI 工作台 - 穿越机工程版原型",
@@ -20,6 +20,7 @@
     "react": "latest",
     "react-dom": "latest",
     "lucide-react": "latest"
+    ,"serialport": "^13.0.0"
   },
   "devDependencies": {
     "concurrently": "latest",
