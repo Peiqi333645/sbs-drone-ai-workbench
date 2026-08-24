@@ -1,0 +1,56 @@
+{
+  "name": "sbs-drone-ai-workbench",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "SBS 无人机 AI 工作台 - 穿越机工程版原型",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "desktop:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "desktop:build": "vite build && electron-builder",
+    "desktop:build:mac": "vite build && electron-builder --mac",
+    "desktop:build:win": "vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest"
+  },
+  "devDependencies": {
+    "concurrently": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "wait-on": "latest"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.sbs.droneworkbench",
+    "productName": "SBS 无人机 AI 工作台",
+    "asar": true,
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*", "package.json"],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "icon": "build/icon.png",
+      "artifactName": "SBS-Drone-Workbench-${version}-Mac-M1.${ext}"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png",
+      "artifactName": "SBS-Drone-Workbench-${version}-Windows-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SBS 无人机 AI 工作台"
+    }
+  }
+}
